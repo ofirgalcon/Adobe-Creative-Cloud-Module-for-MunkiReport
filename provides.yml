@@ -1,0 +1,26 @@
+client_tabs:
+    adobe:
+        view: adobe_tab
+        i18n: adobe.listing.title
+        badge: adobe-cnt
+listings:
+    adobe:
+        view: adobe_listing
+        i18n: adobe.listing.title
+reports:
+    adobe:
+        view: adobe_report
+        i18n: adobe.report.title
+widgets:
+    adobe_app_name:
+        view: adobe_app_name_widget
+    adobe_sapcode:
+        view: adobe_sapcode_widget
+    adobe_base_version:
+        view: adobe_base_version_widget
+    adobe_year_edition:
+        view: adobe_year_edition_widget
+    adobe_version:
+        view: adobe_version_widget
+    adobe_is_up_to_date:
+        view: adobe_is_up_to_date_widget

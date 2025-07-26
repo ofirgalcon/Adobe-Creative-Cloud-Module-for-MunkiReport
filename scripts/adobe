@@ -1,0 +1,229 @@
+#!/usr/local/munkireport/munkireport-python3
+
+import plistlib
+import re
+import subprocess
+import os
+import sys
+import time
+import platform
+try:
+    import requests
+except ImportError:
+    requests = None
+
+# skip this script for now
+# sys.exit(0)
+
+sys.path.insert(0, '/usr/local/munki')
+sys.path.insert(0, '/usr/local/munkireport')
+
+# Configuration
+CACHE_MAX_AGE_HOURS = 0  # Cache validity interval in hours, 0 = no cache
+
+def run_command(command):
+    result = subprocess.run(command, shell=True, capture_output=True, text=True)
+    # Only print error if return code is not 0, 1, or 2
+    if result.returncode not in (0, 1, 2):
+        print(f"Error running '{command}': {result.stderr}", file=sys.stderr)
+    return result.stdout.strip()
+
+def is_cache_valid(cache_file, max_age_hours=CACHE_MAX_AGE_HOURS):
+    """Check if cache file exists and is newer than max_age_hours (now configurable)"""
+    if not os.path.exists(cache_file):
+        return False
+    
+    file_age = time.time() - os.path.getmtime(cache_file)
+    max_age_seconds = max_age_hours * 3600
+    return file_age < max_age_seconds
+
+def parse_au_data(au_data):
+    lines = au_data.strip().split("\n")
+    # Check if there is no data after the headers
+    if len(lines) <= 3:
+        return []
+
+    lines = lines[2:-1]  # Skip the first two lines and the last line
+
+    au_list = []
+    for line in lines:
+        if line.strip() == "":  # Skip any empty lines
+            continue
+        parts = line.split()
+        sapcode = parts[-3]
+        base_version = parts[-2]
+        installed_version = parts[-1]
+        app_name = ' '.join(parts[:-3])
+        au_list.append({
+            'app_name': app_name,
+            'sapcode': sapcode,
+            'base_version': base_version,
+            'installed_version': installed_version,
+            'latest_version': '',
+            'description': '',
+            'is_up_to_date': ''
+        })
+    return au_list
+
+def parse_rum_data(rum_data):
+    rum_list = []
+    lines = rum_data.strip().split("\n")
+    for line in lines:
+        match = re.search(r'\(([^/]+)/([^/]+)/([^\)]+)\)', line)
+        if match:
+            sapcode, latest_version, description = match.groups()
+            rum_list.append({
+                'sapcode': sapcode,
+                'latest_version': latest_version,
+                'description': description
+            })
+    return rum_list
+
+def merge_data(au_list, rum_list):
+    for au_item in au_list:
+        # Skip Creative Cloud Desktop (KCCC) since RemoteUpdateManager doesn't support it
+        if au_item['sapcode'] == 'KCCC':
+            continue
+            
+        for rum_item in rum_list:
+            if au_item['sapcode'] == rum_item['sapcode']:
+                au_item['latest_version'] = rum_item['latest_version']
+                au_item['description'] = rum_item['description']
+                
+                # Calculate if app is up-to-date
+                installed_version = au_item['installed_version']
+                latest_version = au_item['latest_version']
+                
+                if installed_version and latest_version:
+                    au_item['is_up_to_date'] = installed_version == latest_version
+                else:
+                    au_item['is_up_to_date'] = ''  # Empty string for unknown status
+                
+                break
+        
+        # If no matching RUM data found, we can't determine if it's up-to-date
+        if not au_item['latest_version']:
+            au_item['is_up_to_date'] = ''
+    
+    return au_list
+
+def clean_data_for_plist(data):
+    """Convert None values to empty strings for plist compatibility"""
+    cleaned_data = []
+    for item in data:
+        cleaned_item = {}
+        for key, value in item.items():
+            if value is None:
+                cleaned_item[key] = ''
+            elif isinstance(value, bool):
+                cleaned_item[key] = value  # Keep booleans as-is
+            else:
+                cleaned_item[key] = str(value) if value is not None else ''
+        cleaned_data.append(cleaned_item)
+    return cleaned_data
+
+def get_latest_ccd_version():
+    """Fetch the latest Creative Cloud Desktop version for the current architecture."""
+    # Determine architecture
+    machine = platform.machine()
+    if machine in ("arm64", "aarch64"):
+        arch = "macarm64"
+    else:
+        arch = "osx10"
+    url = "https://helpx.adobe.com/download-install/apps/download-install-apps/creative-cloud-apps/download-creative-cloud-desktop-app-using-direct-links.html"
+    try:
+        if requests is None:
+            import urllib.request
+            html = urllib.request.urlopen(url).read().decode()
+        else:
+            html = requests.get(url, timeout=10).text
+        # Extract all hrefs ending in .dmg
+        href_dmg_urls = re.findall(r'href=[\'\"]([^\'\"]+\.dmg)[\'\"]', html, re.IGNORECASE)
+        # Filter for arch and ACCCx
+        filtered = [url for url in href_dmg_urls if arch in url and 'ACCCx' in url]
+        if not filtered:
+            return None
+        dmg_url = filtered[0]
+        # Extract version
+        vmatch = re.search(r'ACCCx([0-9_]+)', dmg_url)
+        if not vmatch:
+            return None
+        version = vmatch.group(1).split('_')
+        version = '.'.join(version[:3])  # Use first 3 parts
+        return version
+    except Exception as e:
+        print(f"Failed to fetch CCD version: {e}", file=sys.stderr)
+        return None
+
+# Set up cache directory and output file
+cachedir = '%s/cache' % os.path.dirname(os.path.realpath(__file__))
+output_plist = os.path.join(cachedir, 'adobe.plist')
+
+# Check if we have valid cached data (interval now configurable)
+if is_cache_valid(output_plist, max_age_hours=CACHE_MAX_AGE_HOURS):
+    print(f"Using cached Adobe data (< {CACHE_MAX_AGE_HOURS} hour(s) old)")
+    sys.exit(0)
+
+print("Fetching fresh Adobe data...")
+
+# Run commands to capture their output
+au_output = run_command('/usr/local/bin/AdobeUninstaller --list')
+rum_output = run_command('/usr/local/bin/RemoteUpdateManager --action=list')
+# Filter out only Return Code (0), (1), and (2) lines
+rum_output = "\n".join(
+    line for line in rum_output.splitlines()
+    if not re.match(r"RemoteUpdateManager exiting with Return Code \((0|1|2)\)", line)
+)
+
+# Process and parse the outputs
+au_list = parse_au_data(au_output)
+rum_list = parse_rum_data(rum_output)
+
+# --- Integrate CCD version fetch for KCCC ---
+for au_item in au_list:
+    if au_item['sapcode'] == 'KCCC':
+        latest_ccd_version = get_latest_ccd_version()
+        if latest_ccd_version:
+            au_item['latest_version'] = latest_ccd_version
+            installed_version = au_item['installed_version']
+            if installed_version:
+                au_item['is_up_to_date'] = installed_version == latest_ccd_version
+            else:
+                au_item['is_up_to_date'] = None
+        else:
+            au_item['latest_version'] = ''
+            au_item['is_up_to_date'] = None
+
+# Check if RemoteUpdateManager indicates no updates available
+if "No new applicable Updates" in rum_output:
+    print("RemoteUpdateManager reports 'No new applicable Updates' - assuming all apps are up-to-date")
+    # Set latest_version equal to installed_version for all items, except KCCC
+    for au_item in au_list:
+        # Skip Creative Cloud Desktop (KCCC) since RemoteUpdateManager doesn't support it
+        if au_item['sapcode'] == 'KCCC':
+            continue
+            
+        if au_item['installed_version']:
+            au_item['latest_version'] = au_item['installed_version']
+            au_item['is_up_to_date'] = True
+        else:
+            au_item['is_up_to_date'] = ''  # Unknown if no installed version
+    
+    # Skip RUM merging since we already know everything is up-to-date
+    merged_data = au_list
+else:
+    # Normal flow: merge AU data with RUM data
+    merged_data = merge_data(au_list, rum_list)
+
+# Clean data for plist compatibility
+clean_data = clean_data_for_plist(merged_data)
+
+# Write to plist file
+try:
+    with open(output_plist, 'wb') as plist_file:
+        plistlib.dump(clean_data, plist_file)
+except Exception as e:
+    print(f"Failed to write plist: {e}")
+    sys.exit(1)
+
+print("Plist file generated successfully.")

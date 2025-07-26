@@ -1,0 +1,8 @@
+type: scrollbox
+widget_id: adobe-sapcode-scrollbox-widget
+api_url: /module/adobe/get_list/sapcode
+i18n_title: adobe.widget.sapcode_title
+icon: fa-code
+listing_link: /show/listing/adobe/adobe
+search_key: label
+badge: count

@@ -1,0 +1,39 @@
+{
+    "column": {
+        "app_name": "Application Name",
+        "sapcode": "SAP Code",
+        "base_version": "Base Version",
+        "installed_version": "Installed Version",
+        "latest_version": "Latest Version",
+        "description": "Description",
+        "is_up_to_date": "Up to Date"
+    },
+    "listing": {
+        "title": "Adobe Applications"
+    },
+    "report": {
+        "title": "Adobe Report"
+    },
+    "title": "Adobe",
+    "app_name": "Adobe",
+    "app_name_short": "App",
+    "sapcode": "SAP Code",
+    "base_version": "Base Version",
+    "year_edition": "Year Edition",
+    "installed_version": "Installed Version",
+    "latest_version": "Latest Version",
+    "description": "Description",
+    "is_up_to_date": "Up to Date",
+    "up_to_date": "Up to Date",
+    "update_available": "Update Available", 
+    "unknown_status": "Unknown",
+    "widget": {
+        "app_name_title": "Application Names",
+        "sapcode_title": "SAP Codes",
+        "base_version_title": "Base Versions",
+        "year_edition_title": "Year Editions",
+        "installed_version_title": "Installed Versions",
+        "latest_version_title": "Latest Versions",
+        "is_up_to_date_title": "Up to Date Status"
+    }
+}

@@ -1,0 +1,8 @@
+type: scrollbox
+widget_id: adobe-base_version-scrollbox-widget
+api_url: /module/adobe/get_list/base_version
+i18n_app_name: adobe.widget.base_version_app_name
+icon: fa-laptop
+listing_link: /show/listing/adobe/adobe
+search_key: label
+badge: count

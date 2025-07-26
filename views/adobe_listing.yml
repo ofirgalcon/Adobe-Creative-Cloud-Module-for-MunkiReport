@@ -1,0 +1,30 @@
+i18n_title: adobe.listing.title
+not_null_column: adobe.app_name
+js_link: module/adobe/js/adobe
+table:
+  - column: machine.computer_name
+    i18n_header: listing.computername
+    formatter: clientDetail
+    tab_link: adobe
+  - column: reportdata.serial_number
+    i18n_header: serial
+  - column: reportdata.long_username
+    i18n_header: username
+  - column: adobe.app_name
+    i18n_header: adobe.app_name_short
+  - column: adobe.sapcode
+    i18n_header: adobe.sapcode
+  # - column: adobe.base_version
+    # i18n_header: adobe.base_version
+  - column: adobe.year_edition
+    i18n_header: adobe.year_edition
+  - column: adobe.installed_version
+    i18n_header: adobe.installed_version
+  - column: adobe.latest_version
+    i18n_header: adobe.latest_version
+  - column: adobe.is_up_to_date
+    i18n_header: adobe.is_up_to_date
+    formatter: formatAdobeUpToDate
+    filter: is_up_to_date_filter
+  # - column: adobe.description
+    # i18n_header: adobe.description

@@ -1,0 +1,10 @@
+type: bargraph
+widget_id: adobe-app_name-bargraph-widget
+api_url: /module/adobe/get_list/app_name
+i18n_title: adobe.widget.app_name_title
+icon: fa-file-pdf-o
+listing_link: /show/listing/adobe/adobe
+search_key: label
+badge: count
+margin: {left: 150}
+search_component: e.data.label

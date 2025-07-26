@@ -1,0 +1,9 @@
+type: bargraph
+widget_id: adobe-year_edition-scrollbox-widget
+api_url: /module/adobe/get_list/year_edition
+i18n_title: adobe.widget.year_edition_title
+icon: fa-calendar
+listing_link: /show/listing/adobe/adobe
+search_key: label
+badge: count
+search_component: e.data.label 
