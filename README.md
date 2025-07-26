@@ -24,7 +24,6 @@ Comprehensive reporting for Adobe Creative Cloud applications with  year edition
 
 ## Data Collection
 
-- **Script runs**: Every hour (with Munki postflight)
 - **Adobe server contact**: Every 1 hour (configurable in the script)
 - **Cache duration**: 1 hour (configurable in the script)
 
