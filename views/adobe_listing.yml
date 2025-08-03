@@ -14,6 +14,7 @@ table:
     i18n_header: adobe.app_name_short
   - column: adobe.sapcode
     i18n_header: adobe.sapcode
+    filter: sapcode_filter
   # - column: adobe.base_version
     # i18n_header: adobe.base_version
   - column: adobe.year_edition

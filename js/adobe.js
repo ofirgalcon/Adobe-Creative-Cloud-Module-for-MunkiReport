@@ -17,6 +17,25 @@ var formatAdobeUpToDate = function(col, row) {
     cell.html(value);
 }
 
+// Adobe SAP Code filter - restricts search to SAP code column only
+var sapcode_filter = function(colNumber, d) {
+    // Only handle searches that look like SAP codes (uppercase 3-8 characters)
+    // This prevents interference with other search functionality
+    if (d.search.value && d.search.value.trim() !== '') {
+        var searchValue = d.search.value.trim();
+        
+        // Check if the search looks like a SAP code (uppercase 3-8 characters)
+        // SAP codes are typically like "ABC" or "XYZ"
+        if (searchValue.match(/^[A-Z]{3,8}$/)) {
+            // Add column specific search for SAP code
+            d.columns[colNumber].search.value = searchValue;
+            // Clear global search to prevent searching other columns
+            d.search.value = '';
+        }
+        // For other searches (like up_to_date, update_available, etc.), don't interfere
+    }
+}
+
 // Adobe Up-to-Date Status filter
 var is_up_to_date_filter = function(colNumber, d) {
     // Look for 'up_to_date' keyword

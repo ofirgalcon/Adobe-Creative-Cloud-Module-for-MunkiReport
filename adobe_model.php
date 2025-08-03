@@ -32,6 +32,43 @@ class Adobe_model extends \Model
     }
 
     /**
+     * Compare two version strings using semantic versioning
+     *
+     * @param string $version1
+     * @param string $version2
+     * @return int Returns -1 if v1 < v2, 0 if equal, 1 if v1 > v2
+     */
+    public static function compareVersions($version1, $version2)
+    {
+        if (empty($version1) || empty($version2)) {
+            return null; // Can't compare if either is empty
+        }
+        
+        // Normalize versions by removing non-numeric/dot characters
+        $v1_clean = preg_replace('/[^\d.]/', '', $version1);
+        $v2_clean = preg_replace('/[^\d.]/', '', $version2);
+        
+        // Split by dots and convert to integers
+        $v1_parts = array_map('intval', explode('.', $v1_clean));
+        $v2_parts = array_map('intval', explode('.', $v2_clean));
+        
+        // Pad shorter version with zeros
+        $max_length = max(count($v1_parts), count($v2_parts));
+        $v1_parts = array_pad($v1_parts, $max_length, 0);
+        $v2_parts = array_pad($v2_parts, $max_length, 0);
+        
+        for ($i = 0; $i < $max_length; $i++) {
+            if ($v1_parts[$i] < $v2_parts[$i]) {
+                return -1;
+            } elseif ($v1_parts[$i] > $v2_parts[$i]) {
+                return 1;
+            }
+        }
+        
+        return 0; // Versions are equal
+    }
+
+    /**
      * Get year edition from base version
      *
      * @param string $app_name
@@ -101,6 +138,10 @@ class Adobe_model extends \Model
             'Substance Designer' => 'Substance 3D Designer',
             'Substance Painter' => 'Substance 3D Painter',
             'UXP Developer Tools' => 'UXP Developer Tools',
+            // Add new mappings for ACR, CCXP, and COSY
+            'ACR' => 'Camera Raw plugin',
+            'CCXP' => 'Creative Cloud Experience',
+            'COSY' => 'Core Sync',
         ];
 
         // Version to year mapping for major Adobe applications
@@ -482,7 +523,13 @@ class Adobe_model extends \Model
             $latest_version = $item_entry['latest_version'] ?? '';
             
             if (!empty($installed_version) && !empty($latest_version)) {
-                $item_entry['is_up_to_date'] = ($installed_version === $latest_version) ? 1 : 0;
+                // Use proper version comparison instead of string comparison
+                $comparison = self::compareVersions($installed_version, $latest_version);
+                if ($comparison !== null) {
+                    $item_entry['is_up_to_date'] = $comparison >= 0 ? 1 : 0;
+                } else {
+                    $item_entry['is_up_to_date'] = null; // NULL for unknown status
+                }
             } else {
                 $item_entry['is_up_to_date'] = null; // NULL for unknown status
             }

@@ -13,7 +13,7 @@
 
 <div id="adobe-msg" data-i18n="loading"></div>
 <div id="adobe-table-view" class="hide">
-    <table class="table table-striped table-condensed table-bordered" id="adobe-tab-table">
+    <table class="adobe table table-striped table-condensed table-bordered" id="adobe-tab-table">
         <thead>
             <tr>
                 <th data-i18n="adobe.app_name_short"></th>
@@ -32,9 +32,9 @@
 </div>
 
 <script>
-$(document).on('appReady', function(){
+$(document).on('appReady', function(e, lang) {
+    // Load data via AJAX first
     $.getJSON(appUrl + '/module/adobe/get_tab_data/' + serialNumber, function(data){
-        
         // Handle both data.msg format and direct array format
         var adobeData = data.msg || data;
         
@@ -44,9 +44,6 @@ $(document).on('appReady', function(){
             $('#adobe-cnt').text(''); // Clear badge when no data
             return;
         }
-        
-        // Set the badge count
-        $('#adobe-cnt').text(adobeData.length);
         
         // Hide loading message and show table
         $('#adobe-msg').addClass('hide');
@@ -78,6 +75,15 @@ $(document).on('appReady', function(){
             
             row.append($('<td>').text(app.description || ''));
             tbody.append(row);
+        });
+        
+        // Initialize DataTable after populating the table
+        $('.adobe').dataTable({
+            "bServerSide": false,
+            "aaSorting": [[0,'asc']],
+            "fnDrawCallback": function( oSettings ) {
+                $('#adobe-cnt').html(oSettings.fnRecordsTotal());
+            }
         });
     })
     .fail(function(){

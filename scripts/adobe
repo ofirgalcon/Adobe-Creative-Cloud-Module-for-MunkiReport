@@ -30,12 +30,57 @@ def run_command(command):
 
 def is_cache_valid(cache_file, max_age_hours=CACHE_MAX_AGE_HOURS):
     """Check if cache file exists and is newer than max_age_hours (now configurable)"""
+    # If max_age_hours is 0, always consider cache invalid (no caching)
+    if max_age_hours == 0:
+        return False
+    
     if not os.path.exists(cache_file):
         return False
     
     file_age = time.time() - os.path.getmtime(cache_file)
     max_age_seconds = max_age_hours * 3600
     return file_age < max_age_seconds
+
+def normalize_version(version_string):
+    """Normalize version string for comparison"""
+    if not version_string:
+        return []
+    
+    # Remove any non-numeric/dot characters and split by dots
+    version_parts = re.sub(r'[^\d.]', '', version_string).split('.')
+    
+    # Convert to integers, defaulting to 0 for missing parts
+    normalized = []
+    for part in version_parts:
+        try:
+            normalized.append(int(part))
+        except ValueError:
+            normalized.append(0)
+    
+    return normalized
+
+def compare_versions(version1, version2):
+    """Compare two version strings. Returns: -1 if v1 < v2, 0 if equal, 1 if v1 > v2"""
+    if not version1 or not version2:
+        return None  # Can't compare if either is empty
+    
+    v1_parts = normalize_version(version1)
+    v2_parts = normalize_version(version2)
+    
+    # Pad shorter version with zeros
+    max_length = max(len(v1_parts), len(v2_parts))
+    v1_parts.extend([0] * (max_length - len(v1_parts)))
+    v2_parts.extend([0] * (max_length - len(v2_parts)))
+    
+    for i in range(max_length):
+        if v1_parts[i] < v2_parts[i]:
+            return -1
+        elif v1_parts[i] > v2_parts[i]:
+            return 1
+    
+    return 0
+
+
 
 def parse_au_data(au_data):
     lines = au_data.strip().split("\n")
@@ -50,10 +95,14 @@ def parse_au_data(au_data):
         if line.strip() == "":  # Skip any empty lines
             continue
         parts = line.split()
+        if len(parts) < 4:  # Need at least 4 parts: app_name sapcode base_version installed_version
+            continue
+            
         sapcode = parts[-3]
         base_version = parts[-2]
         installed_version = parts[-1]
         app_name = ' '.join(parts[:-3])
+        
         au_list.append({
             'app_name': app_name,
             'sapcode': sapcode,
@@ -80,30 +129,86 @@ def parse_rum_data(rum_data):
     return rum_list
 
 def merge_data(au_list, rum_list):
+    # Create a set of SAP codes that are mentioned in RUM output
+    rum_sapcodes = {item['sapcode'] for item in rum_list}
+    au_sapcodes = {item['sapcode'] for item in au_list}
+    
+
+    
+    # Handle apps that appear in AU but not in RUM
     for au_item in au_list:
         # Skip Creative Cloud Desktop (KCCC) since RemoteUpdateManager doesn't support it
         if au_item['sapcode'] == 'KCCC':
             continue
             
-        for rum_item in rum_list:
-            if au_item['sapcode'] == rum_item['sapcode']:
-                au_item['latest_version'] = rum_item['latest_version']
-                au_item['description'] = rum_item['description']
+        # Check if this app is mentioned in RUM output
+        if au_item['sapcode'] in rum_sapcodes:
+
+            # App is mentioned in RUM - get its latest version from RUM data
+            # Find the best matching RUM item for this AU item
+            best_match = None
+            for rum_item in rum_list:
+                if au_item['sapcode'] == rum_item['sapcode']:
+                    # Try to match by major version number
+                    au_major = au_item['base_version'].split('.')[0] if au_item['base_version'] else None
+                    rum_major = rum_item['latest_version'].split('.')[0] if rum_item['latest_version'] else None
+                    
+                    if au_major and rum_major and au_major == rum_major:
+                        best_match = rum_item
+                        break
+                    elif not best_match:
+                        # If no major version match, use the first one found
+                        best_match = rum_item
+            
+            if best_match:
+                au_item['latest_version'] = best_match['latest_version']
+                au_item['description'] = best_match['description']
+                print(f"Matched {au_item['app_name']} {au_item['base_version']} with {best_match['sapcode']} {best_match['latest_version']}", file=sys.stderr)
+            else:
+                print(f"No match found for {au_item['app_name']} {au_item['sapcode']} {au_item['base_version']}", file=sys.stderr)
                 
-                # Calculate if app is up-to-date
+                # Calculate if app is up-to-date using proper version comparison
                 installed_version = au_item['installed_version']
                 latest_version = au_item['latest_version']
                 
                 if installed_version and latest_version:
-                    au_item['is_up_to_date'] = installed_version == latest_version
+                    comparison = compare_versions(installed_version, latest_version)
+                    if comparison is not None:
+                        au_item['is_up_to_date'] = (comparison >= 0)  # True if installed >= latest
+                    else:
+                        au_item['is_up_to_date'] = ''  # Unknown if comparison failed
                 else:
                     au_item['is_up_to_date'] = ''  # Empty string for unknown status
-                
-                break
-        
-        # If no matching RUM data found, we can't determine if it's up-to-date
-        if not au_item['latest_version']:
-            au_item['is_up_to_date'] = ''
+        else:
+
+            # App is NOT mentioned in RUM output - assume it's up-to-date
+            if au_item['installed_version']:
+                au_item['latest_version'] = au_item['installed_version']
+                au_item['is_up_to_date'] = True
+                au_item['description'] = ''
+            else:
+                au_item['is_up_to_date'] = ''  # Unknown if no installed version
+    
+    # Handle apps that appear in RUM but not in AU (missing from AdobeUninstaller)
+    for rum_item in rum_list:
+        if rum_item['sapcode'] not in au_sapcodes and rum_item['sapcode'] != 'KCCC':
+
+            
+            app_name = rum_item['sapcode']
+            installed_version = ''
+            latest_version = rum_item['latest_version']
+            description = rum_item['description']
+            
+            # Create a placeholder entry for apps that appear in RUM but not AU
+            au_list.append({
+                'app_name': app_name,
+                'sapcode': rum_item['sapcode'],
+                'base_version': '',
+                'installed_version': installed_version,
+                'latest_version': latest_version,
+                'description': description,
+                'is_up_to_date': False
+            })
     
     return au_list
 
@@ -121,6 +226,51 @@ def clean_data_for_plist(data):
                 cleaned_item[key] = str(value) if value is not None else ''
         cleaned_data.append(cleaned_item)
     return cleaned_data
+
+def update_app_names(data):
+    """Update app names for specific SAP codes"""
+    for item in data:
+        sapcode = item.get('sapcode', '')
+        app_name = item.get('app_name', '')
+        
+        # Handle ACR - should be "Camera Raw plugin"
+        if sapcode == 'ACR':
+            item['app_name'] = 'Camera Raw plugin'
+        # Handle CCXP - should be "Creative Cloud Experience"
+        elif sapcode == 'CCXP':
+            item['app_name'] = 'Creative Cloud Experience'
+        # Handle COSY - should be "Core Sync"
+        elif sapcode == 'COSY':
+            item['app_name'] = 'Core Sync'
+    
+    return data
+
+def get_acrobat_reader_version():
+    """Get Acrobat version from Info.plist using defaults command"""
+    # Check various possible Acrobat installation paths
+    possible_paths = [
+        '/Applications/Adobe Acrobat DC/Adobe Acrobat.app/Contents/Info.plist',
+        '/Applications/Adobe Acrobat 8 Professional/Adobe Acrobat Professional.app/Contents/Info.plist',
+        '/Applications/Adobe Acrobat 9 Pro/Adobe Acrobat Pro.app/Contents/Info.plist',
+        '/Applications/Adobe Acrobat X Pro/Adobe Acrobat Pro.app/Contents/Info.plist'
+    ]
+    
+    for info_plist_path in possible_paths:
+        if os.path.exists(info_plist_path):
+            try:
+                result = subprocess.run(['defaults', 'read', info_plist_path, 'CFBundleShortVersionString'], 
+                                      capture_output=True, text=True, timeout=10)
+                if result.returncode == 0:
+                    return result.stdout.strip()
+                else:
+                    print(f"defaults read failed for {info_plist_path} with return code {result.returncode}: {result.stderr}", file=sys.stderr)
+            except Exception as e:
+                print(f"Failed to get Acrobat version from {info_plist_path}: {e}", file=sys.stderr)
+    
+    print(f"Acrobat Info.plist not found in any of the expected locations", file=sys.stderr)
+    return None
+
+
 
 def get_latest_ccd_version():
     """Fetch the latest Creative Cloud Desktop version for the current architecture."""
@@ -161,14 +311,25 @@ output_plist = os.path.join(cachedir, 'adobe.plist')
 
 # Check if we have valid cached data (interval now configurable)
 if is_cache_valid(output_plist, max_age_hours=CACHE_MAX_AGE_HOURS):
-    print(f"Using cached Adobe data (< {CACHE_MAX_AGE_HOURS} hour(s) old)")
+
     sys.exit(0)
 
-print("Fetching fresh Adobe data...")
+
 
 # Run commands to capture their output
 au_output = run_command('/usr/local/bin/AdobeUninstaller --list')
 rum_output = run_command('/usr/local/bin/RemoteUpdateManager --action=list')
+
+# Extract return code for debugging
+rum_return_code = None
+for line in rum_output.splitlines():
+    match = re.match(r"RemoteUpdateManager exiting with Return Code \((\d+)\)", line)
+    if match:
+        rum_return_code = int(match.group(1))
+        break
+
+
+
 # Filter out only Return Code (0), (1), and (2) lines
 rum_output = "\n".join(
     line for line in rum_output.splitlines()
@@ -179,6 +340,43 @@ rum_output = "\n".join(
 au_list = parse_au_data(au_output)
 rum_list = parse_rum_data(rum_output)
 
+# Handle case where no Adobe apps are installed
+if not au_list:
+    if rum_list:
+        # Create entries for apps found in RUM but not AU
+        for rum_item in rum_list:
+            app_name = rum_item['sapcode']
+            installed_version = ''
+            latest_version = rum_item['latest_version']
+            description = rum_item['description']
+            
+            au_list.append({
+                'app_name': app_name,
+                'sapcode': rum_item['sapcode'],
+                'base_version': '',
+                'installed_version': installed_version,
+                'latest_version': latest_version,
+                'description': description,
+                'is_up_to_date': False
+            })
+        
+        # Update app names for RUM-only apps
+        au_list = update_app_names(au_list)
+    else:
+
+        # Create empty plist
+        clean_data = []
+        try:
+            with open(output_plist, 'wb') as plist_file:
+                plistlib.dump(clean_data, plist_file)
+        except Exception as e:
+            print(f"Failed to write plist: {e}")
+            sys.exit(1)
+
+        sys.exit(0)
+
+
+
 # --- Integrate CCD version fetch for KCCC ---
 for au_item in au_list:
     if au_item['sapcode'] == 'KCCC':
@@ -187,33 +385,22 @@ for au_item in au_list:
             au_item['latest_version'] = latest_ccd_version
             installed_version = au_item['installed_version']
             if installed_version:
-                au_item['is_up_to_date'] = installed_version == latest_ccd_version
+                comparison = compare_versions(installed_version, latest_ccd_version)
+                if comparison is not None:
+                    au_item['is_up_to_date'] = (comparison >= 0)
+                else:
+                    au_item['is_up_to_date'] = None
             else:
                 au_item['is_up_to_date'] = None
         else:
             au_item['latest_version'] = ''
             au_item['is_up_to_date'] = None
 
-# Check if RemoteUpdateManager indicates no updates available
-if "No new applicable Updates" in rum_output:
-    print("RemoteUpdateManager reports 'No new applicable Updates' - assuming all apps are up-to-date")
-    # Set latest_version equal to installed_version for all items, except KCCC
-    for au_item in au_list:
-        # Skip Creative Cloud Desktop (KCCC) since RemoteUpdateManager doesn't support it
-        if au_item['sapcode'] == 'KCCC':
-            continue
-            
-        if au_item['installed_version']:
-            au_item['latest_version'] = au_item['installed_version']
-            au_item['is_up_to_date'] = True
-        else:
-            au_item['is_up_to_date'] = ''  # Unknown if no installed version
-    
-    # Skip RUM merging since we already know everything is up-to-date
-    merged_data = au_list
-else:
-    # Normal flow: merge AU data with RUM data
-    merged_data = merge_data(au_list, rum_list)
+# Always use normal flow: merge AU data with RUM data
+merged_data = merge_data(au_list, rum_list)
+
+# Update app names for specific SAP codes
+merged_data = update_app_names(merged_data)
 
 # Clean data for plist compatibility
 clean_data = clean_data_for_plist(merged_data)
@@ -226,4 +413,4 @@ except Exception as e:
     print(f"Failed to write plist: {e}")
     sys.exit(1)
 
-print("Plist file generated successfully.")
+
