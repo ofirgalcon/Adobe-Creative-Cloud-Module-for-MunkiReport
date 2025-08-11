@@ -38,7 +38,7 @@ class Adobe_controller extends Module_controller
             return;
         }
 
-        // Remove non-serial number characters - fixed regex pattern
+        // Sanitize input - remove non-serial number characters
         $serial_number = preg_replace("/[^A-Za-z0-9_\-]+/", '', $serial_number);
 
         if (empty($serial_number)) {
@@ -47,12 +47,34 @@ class Adobe_controller extends Module_controller
         }
 
         $queryobj = new Adobe_model();
-        $sql = "SELECT * FROM adobe WHERE serial_number = ? ORDER BY 
-                CASE 
-                    WHEN year_edition REGEXP 'CC [0-9]{4}' THEN CAST(SUBSTRING(year_edition, 4) AS UNSIGNED)
-                    ELSE 0 
-                END DESC, 
-                app_name ASC";
+        
+        // Get database connection info for cross-database compatibility
+        $connection = conf('connection');
+        $is_mysql = has_mysql_db($connection);
+        $is_sqlite = has_sqlite_db($connection);
+        
+        // Build database-specific SQL for year_edition sorting
+        if ($is_mysql) {
+            // MySQL syntax
+            $sql = "SELECT * FROM adobe WHERE serial_number = ? ORDER BY 
+                    CASE 
+                        WHEN year_edition REGEXP 'CC [0-9]{4}' THEN CAST(SUBSTRING(year_edition, 4) AS UNSIGNED)
+                        ELSE 0 
+                    END DESC, 
+                    app_name ASC";
+        } elseif ($is_sqlite) {
+            // SQLite syntax - use LIKE instead of REGEXP, CAST to INTEGER instead of UNSIGNED
+            $sql = "SELECT * FROM adobe WHERE serial_number = ? ORDER BY 
+                    CASE 
+                        WHEN year_edition LIKE 'CC %' AND substr(year_edition, 4) GLOB '[0-9][0-9][0-9][0-9]' THEN CAST(substr(year_edition, 4) AS INTEGER)
+                        ELSE 0 
+                    END DESC, 
+                    app_name ASC";
+        } else {
+            // Fallback for other databases
+            $sql = "SELECT * FROM adobe WHERE serial_number = ? ORDER BY app_name ASC";
+        }
+        
         $adobe_tab = $queryobj->query($sql, [$serial_number]);
         
         $obj->view('json', array('msg' => $adobe_tab));
@@ -82,6 +104,11 @@ class Adobe_controller extends Module_controller
         
         $queryobj = new Adobe_model();
         
+        // Get database connection info for cross-database compatibility
+        $connection = conf('connection');
+        $is_mysql = has_mysql_db($connection);
+        $is_sqlite = has_sqlite_db($connection);
+        
         // Special handling for is_up_to_date boolean column
         if ($column === 'is_up_to_date') {
             $sql = "SELECT 
@@ -100,19 +127,47 @@ class Adobe_controller extends Module_controller
         } 
         // Special handling for year_edition column - sort by year descending
         elseif ($column === 'year_edition') {
-            $sql = "SELECT year_edition AS label, COUNT(*) AS count 
-                    FROM adobe 
-                    LEFT JOIN reportdata USING (serial_number)
-                    ".get_machine_group_filter()."
-                    AND year_edition IS NOT NULL 
-                    AND year_edition != ''
-                    GROUP BY year_edition 
-                    ORDER BY 
-                        CASE 
-                            WHEN year_edition REGEXP 'CC [0-9]{4}' THEN CAST(SUBSTRING(year_edition, 4) AS UNSIGNED)
-                            ELSE 0 
-                        END DESC, 
-                        year_edition ASC";
+            if ($is_mysql) {
+                // MySQL syntax
+                $sql = "SELECT year_edition AS label, COUNT(*) AS count 
+                        FROM adobe 
+                        LEFT JOIN reportdata USING (serial_number)
+                        ".get_machine_group_filter()."
+                        AND year_edition IS NOT NULL 
+                        AND year_edition != ''
+                        GROUP BY year_edition 
+                        ORDER BY 
+                            CASE 
+                                WHEN year_edition REGEXP 'CC [0-9]{4}' THEN CAST(SUBSTRING(year_edition, 4) AS UNSIGNED)
+                                ELSE 0 
+                            END DESC, 
+                            year_edition ASC";
+            } elseif ($is_sqlite) {
+                // SQLite syntax - use LIKE instead of REGEXP, CAST to INTEGER instead of UNSIGNED
+                $sql = "SELECT year_edition AS label, COUNT(*) AS count 
+                        FROM adobe 
+                        LEFT JOIN reportdata USING (serial_number)
+                        ".get_machine_group_filter()."
+                        AND year_edition IS NOT NULL 
+                        AND year_edition != ''
+                        GROUP BY year_edition 
+                        ORDER BY 
+                            CASE 
+                                WHEN year_edition LIKE 'CC %' AND substr(year_edition, 4) GLOB '[0-9][0-9][0-9][0-9]' THEN CAST(substr(year_edition, 4) AS INTEGER)
+                                ELSE 0 
+                            END DESC, 
+                            year_edition ASC";
+            } else {
+                // Fallback for other databases
+                $sql = "SELECT year_edition AS label, COUNT(*) AS count 
+                        FROM adobe 
+                        LEFT JOIN reportdata USING (serial_number)
+                        ".get_machine_group_filter()."
+                        AND year_edition IS NOT NULL 
+                        AND year_edition != ''
+                        GROUP BY year_edition 
+                        ORDER BY year_edition ASC";
+            }
         } else {
             $sql = "SELECT $column AS label, COUNT(*) AS count 
                     FROM adobe 
